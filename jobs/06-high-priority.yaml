@@ -1,0 +1,41 @@
+# Job 6 — urgent work that jumps the line by preempting.
+#
+# Eight GPUs at high priority, in team-a's queue. Submit it while job 5 (the
+# low-priority batch) is holding all 16 of team-a's GPUs. There's no free quota,
+# so Kueue does what the ClusterQueue's preemption policy allows: it evicts
+# enough of the lower-priority job to free 8 GPUs, admits this one, and lets the
+# evicted pods wait their turn again.
+#
+# On the board you'll see batch-lowprio drop from 16 to 8 and move some pods
+# back to waiting, while this job goes straight to running. When it finishes,
+# the batch reclaims the GPUs on its own.
+#
+# This is how a real cluster keeps an urgent job from being stuck behind a big
+# best-effort one — priority plus preemption, not a longer queue.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: urgent-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-a
+    kueue.x-k8s.io/priority-class: high-priority
+spec:
+  parallelism: 8
+  completions: 8
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'urgent job running'; sleep 60"]
+          resources:
+            requests:
+              cpu: "250m"   # small on purpose: GPU is the only resource that gates admission
+              memory: "256Mi"
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"

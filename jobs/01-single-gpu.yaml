@@ -1,0 +1,35 @@
+# Job 1 — the happy path. One pod, one GPU.
+#
+# What turns this into a Kueue job is a single label: queue-name. Leave it off
+# and plain Kubernetes runs the pod right away (then fails to find a real GPU).
+# Add it and Kueue steps in first — it creates a Workload, checks it against the
+# quota pool, and only admits it once there's room.
+#
+# Submit:  kubectl apply -f jobs/01-single-gpu.yaml
+# Watch:   ./scripts/watch-viz.sh
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: single-gpu
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-a      # <- opt in to Kueue
+spec:
+  parallelism: 1
+  completions: 1
+  suspend: true                            # Kueue flips this to false on admit
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: trainer
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'got a GPU, training for 60s'; sleep 60"]
+          resources:
+            requests:
+              cpu: "250m"   # small on purpose: GPU is the only resource that gates admission
+              memory: "256Mi"
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"

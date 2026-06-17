@@ -1,0 +1,18 @@
+# A Topology spells out the physical hierarchy of the cluster, widest to
+# narrowest. Each level points at a node label — the ones step 2 applied.
+#
+# This is how Kueue answers "are these two nodes close?" Same rack beats same
+# zone. A job can then ask to stay inside one level (see jobs/).
+#
+#   zone (topology.kubernetes.io/zone)
+#     └── rack (lab.gpu/rack)
+#           └── host (kubernetes.io/hostname)   <- every node gets this one free
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Topology
+metadata:
+  name: datacenter
+spec:
+  levels:
+    - nodeLabel: topology.kubernetes.io/zone
+    - nodeLabel: lab.gpu/rack
+    - nodeLabel: kubernetes.io/hostname

@@ -1,0 +1,59 @@
+# A ClusterQueue is a quota pool: for the teams that share it, how much hardware
+# they're allowed to use at once.
+#
+# Two tenants here, each with their own pool, splitting the 32-GPU cluster:
+#
+#     gpu-team-a   16 GPU   ← team-a's slice
+#     gpu-team-b   16 GPU   ← team-b's slice
+#                  ----
+#                  32 GPU   = the whole cluster
+#
+# Each team is capped at its 16. team-a can't touch team-b's idle GPUs and vice
+# versa — lending quota across teams (borrowing) is a separate feature we don't
+# turn on. So this is the simple "every team owns a fixed slice" model: the two
+# run side by side, each under its own cap, and a team waits on itself once it
+# asks for more than its 16.
+#
+# cpu/memory quotas are generous, so GPUs are the only thing gating admission.
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: gpu-team-a
+spec:
+  namespaceSelector: {}
+  # Let a higher-priority job in this queue evict a lower-priority one already
+  # running here, when that's the only way to make room. This is what powers the
+  # preemption demo (jobs 05 + 06). team-b's queue leaves this off (default
+  # Never), so its jobs never get preempted.
+  preemption:
+    withinClusterQueue: LowerPriority
+  resourceGroups:
+    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+      flavors:
+        - name: fake-h100
+          resources:
+            - name: "cpu"
+              nominalQuota: "64"
+            - name: "memory"
+              nominalQuota: "128Gi"
+            - name: "nvidia.com/gpu"
+              nominalQuota: "16"    # team-a's half of the 32 GPUs
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: gpu-team-b
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+      flavors:
+        - name: fake-h100
+          resources:
+            - name: "cpu"
+              nominalQuota: "64"
+            - name: "memory"
+              nominalQuota: "128Gi"
+            - name: "nvidia.com/gpu"
+              nominalQuota: "16"    # team-b's half of the 32 GPUs

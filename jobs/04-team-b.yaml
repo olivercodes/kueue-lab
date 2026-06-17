@@ -1,0 +1,55 @@
+# Job 4 — team-b's workload (a second, separate tenant).
+#
+# This is where multi-tenancy pays off. team-b has its own LocalQueue (team-b),
+# its own ClusterQueue (gpu-team-b), and its own 16-GPU quota, all separate from
+# team-a. Here it asks for the full 16 — its entire slice, one whole rack.
+#
+# Run it alongside team-a's jobs and the two go in parallel:
+#   - team-a's gang (8 GPU) takes one rack.
+#   - team-b's job (16 GPU) fills the other rack — different tenant, different
+#     pool, no contention between them.
+# Both run at once, each inside its own 16-GPU cap.
+#
+# What you won't see: team-b reaching into team-a's idle quota, or the reverse.
+# The slices are fixed. (Letting teams lend idle quota to each other is
+# "borrowing" — a Kueue feature we leave off here to keep the story clean.)
+#
+# Try it:
+#   kubectl apply -f jobs/02-topology-gang.yaml   # team-a, one rack
+#   kubectl apply -f jobs/04-team-b.yaml          # team-b, the other rack — in parallel
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: team-b-train
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-b      # <- team-b's queue, not team-a's
+spec:
+  parallelism: 16
+  completions: 16
+  suspend: true
+  backoffLimit: 0
+  completionMode: Indexed
+  template:
+    metadata:
+      annotations:
+        # team-b also wants to stay topology-close (one rack / NVLink domain)
+        kueue.x-k8s.io/podset-required-topology: "lab.gpu/rack"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo \"team-b rank $JOB_COMPLETION_INDEX on $(hostname)\"; sleep 90"]
+          env:
+            - name: JOB_COMPLETION_INDEX
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
+          resources:
+            requests:
+              cpu: "250m"   # small on purpose: GPU is the only resource that gates admission
+              memory: "256Mi"
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"

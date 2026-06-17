@@ -1,0 +1,29 @@
+# kind cluster for the Kueue lab.
+#
+# One control-plane + four workers. The workers stand in for four GPU servers
+# in a tiny datacenter. They're left bare here on purpose — labels and the fake
+# GPU capacity come later, in step 2 (scripts/02-label-nodes.sh), so you can
+# watch the before/after and see what each label is doing.
+#
+# The topology we'll lay over these workers (a 2-rack datacenter):
+#
+#     zone = az1
+#     ├── rack = rack1   (NVLink domain A)
+#     │   ├── worker  -> gpu-node-1   (8 fake GPUs)
+#     │   └── worker2 -> gpu-node-2   (8 fake GPUs)
+#     └── rack = rack2   (NVLink domain B)
+#         ├── worker3 -> gpu-node-3   (8 fake GPUs)
+#         └── worker4 -> gpu-node-4   (8 fake GPUs)
+#
+# 32 fake GPUs total (4 nodes x 8 — a standard HGX H100 node has 8 GPUs),
+# 16 per rack. That's enough to show quota, queueing, gang admission, and
+# keeping a job inside one rack.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kueue-lab
+nodes:
+  - role: control-plane
+  - role: worker
+  - role: worker
+  - role: worker
+  - role: worker

@@ -1,0 +1,61 @@
+# Helper for the spill demo (job 7). On its own it teaches nothing — its job is
+# to leave the cluster fragmented so job 7 has a reason to spill.
+#
+# It runs as team-b and pins 8 pods to gpu-node-1 (rack1) and 8 to gpu-node-3
+# (rack2) using nodeSelector. Result: each rack has one full node busy and one
+# node (8 GPUs) free. No single rack can hold a 10-GPU job anymore, even though
+# there are 16 GPUs free in total.
+#
+# Apply this first, then job 7:
+#   kubectl apply -f jobs/07a-fragmenter.yaml
+#   kubectl apply -f jobs/07-topology-spill.yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: frag-rack1
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-b
+spec:
+  parallelism: 8
+  completions: 8
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        lab.gpu/alias: gpu-node-1
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'occupying node-1'; sleep 300"]
+          resources:
+            requests: { cpu: "250m", memory: "256Mi", nvidia.com/gpu: "1" }
+            limits: { nvidia.com/gpu: "1" }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: frag-rack2
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-b
+spec:
+  parallelism: 8
+  completions: 8
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        lab.gpu/alias: gpu-node-3
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'occupying node-3'; sleep 300"]
+          resources:
+            requests: { cpu: "250m", memory: "256Mi", nvidia.com/gpu: "1" }
+            limits: { nvidia.com/gpu: "1" }

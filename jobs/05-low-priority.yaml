@@ -1,0 +1,38 @@
+# Job 5 — low-priority batch work that hogs team-a's whole quota.
+#
+# Sixteen GPUs, all of team-a's pool, at low priority. On its own it runs fine.
+# Its job in the demo is to be in the way: submit it first, let it fill the
+# pool, then submit job 6 (high priority) and watch this one get evicted to make
+# room. The pods that get preempted go back to waiting and resume once the
+# urgent job is done — nothing is lost, the work just yields.
+#
+# Pair with job 6:
+#   kubectl apply -f jobs/05-low-priority.yaml    # fills team-a, 16 GPU
+#   kubectl apply -f jobs/06-high-priority.yaml   # preempts part of it
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: batch-lowprio
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-a
+    kueue.x-k8s.io/priority-class: low-priority
+spec:
+  parallelism: 16
+  completions: 16
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'low-prio batch working'; sleep 600"]
+          resources:
+            requests:
+              cpu: "250m"   # small on purpose: GPU is the only resource that gates admission
+              memory: "256Mi"
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"

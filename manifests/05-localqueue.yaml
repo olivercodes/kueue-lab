@@ -1,0 +1,26 @@
+# A LocalQueue is the door a team submits through, and it lives in their
+# namespace. Jobs don't point at a ClusterQueue directly — they point at a
+# LocalQueue, which hands off to a ClusterQueue. So a team only ever sees its
+# own queue, while the cluster-wide quota stays on the ClusterQueue.
+#
+# Two teams, two LocalQueues, each wired to its own 16-GPU ClusterQueue. A job
+# picks one with the label  kueue.x-k8s.io/queue-name: team-a  (or team-b).
+#
+# Both sit in the `default` namespace to keep things simple; in practice each
+# team would have its own.
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: team-a
+  namespace: default
+spec:
+  clusterQueue: gpu-team-a
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  name: team-b
+  namespace: default
+spec:
+  clusterQueue: gpu-team-b

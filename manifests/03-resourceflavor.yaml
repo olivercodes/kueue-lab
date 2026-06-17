@@ -1,0 +1,15 @@
+# A ResourceFlavor names a class of hardware — here, "an H100 GPU node."
+#
+#  - nodeLabels  : the nodes that count as this flavor. A workload admitted on
+#                  it only lands on nodes carrying these labels (our four fake
+#                  GPU workers).
+#  - topologyName: links the flavor to the `datacenter` Topology, which switches
+#                  on topology-aware placement for anything using the flavor.
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: fake-h100
+spec:
+  nodeLabels:
+    lab.gpu/accelerator: fake-h100
+  topologyName: datacenter

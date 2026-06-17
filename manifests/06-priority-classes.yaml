@@ -1,0 +1,21 @@
+# Two priority levels for team-a's jobs. A WorkloadPriorityClass is Kueue's own
+# notion of priority — it decides queue order and, when preemption is on, who
+# gets to evict whom. (It's separate from core Kubernetes PriorityClass, which
+# only affects the kube-scheduler, not Kueue admission.)
+#
+# A job picks one with the label:  kueue.x-k8s.io/priority-class: high-priority
+# Leave the label off and the job runs at priority 0 — below both of these.
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: low-priority
+value: 100
+description: "Best-effort batch work — first to be evicted when something urgent shows up."
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: WorkloadPriorityClass
+metadata:
+  name: high-priority
+value: 1000
+description: "Urgent work — can preempt lower-priority jobs to get GPUs now."

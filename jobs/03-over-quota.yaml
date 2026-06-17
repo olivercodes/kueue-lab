@@ -1,0 +1,38 @@
+# Job 3 — the one that has to wait.
+#
+# It asks for 12 GPUs. On its own that fits the 16-GPU pool fine. But submit it
+# while job 2 (8 GPUs) is still running and you're at 8 + 12 = 20, over the 16
+# cap. Kueue admits what fits and leaves this Workload pending with a plain-spoken
+# reason ("couldn't assign flavors ... insufficient quota"). Once job 2 finishes
+# and frees its 8 GPUs, this one gets admitted on its own — nothing to babysit.
+#
+# That's what a queue buys you: jobs wait their turn against a shared pool
+# instead of overcommitting the cluster or failing on the spot.
+#
+# Demo:  submit job 2 and job 3 back to back, then ./scripts/watch-viz.sh
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: big-batch
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: team-a
+spec:
+  parallelism: 12
+  completions: 12
+  suspend: true
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: worker
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'big batch running'; sleep 45"]
+          resources:
+            requests:
+              cpu: "250m"   # small on purpose: GPU is the only resource that gates admission
+              memory: "256Mi"
+              nvidia.com/gpu: "1"
+            limits:
+              nvidia.com/gpu: "1"

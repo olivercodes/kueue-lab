@@ -1,0 +1,134 @@
+Expected outputs — what you should see at each step.
+Pod names, IPs, ages, and which exact rack or node gets picked will differ from
+run to run. What should match is the shape of the output and the status, the
+admitted flags, and the reason text.
+
+The easiest way to watch all of this is the live board:  ./scripts/watch-viz.sh
+The raw kubectl output below is what that board is built from.
+====================================================================
+
+
+Step 2 — fake GPU nodes labeled
+-------------------------------
+Each worker carries zone + rack labels and advertises 8 nvidia.com/gpu (a
+standard HGX H100 node = 8 GPUs). The control-plane stays bare.
+
+  NODE                      ZONE     RACK     ALIAS        GPUS
+  kueue-lab-control-plane   <none>   <none>   <none>       <none>
+  kueue-lab-worker          az1      rack1    gpu-node-1   8
+  kueue-lab-worker2         az1      rack1    gpu-node-2   8
+  kueue-lab-worker3         az1      rack2    gpu-node-3   8
+  kueue-lab-worker4         az1      rack2    gpu-node-4   8
+
+  32 GPUs total · 16 per rack · ClusterQueue quota = 16 (half the cluster).
+
+
+Step 4 — queues active
+----------------------
+$ kubectl get clusterqueue
+  NAME                COHORT   PENDING WORKLOADS
+  gpu-cluster-queue            0
+
+$ kubectl get localqueue -n default
+  NAME     CLUSTERQUEUE        PENDING WORKLOADS   ADMITTED WORKLOADS
+  team-a   gpu-cluster-queue   0                   0
+
+
+Job 1 — single-gpu  (the happy path, 1 GPU)
+-------------------------------------------
+$ kubectl apply -f jobs/01-single-gpu.yaml
+$ kubectl get workloads
+  NAME                   QUEUE    RESERVED IN         ADMITTED   FINISHED   AGE
+  job-single-gpu-xxxxx   team-a   gpu-cluster-queue   True                  3s
+
+On the board: one ● lights up on a single node; QUOTA shows 1/16.
+Clean up before the next job:  kubectl delete -f jobs/01-single-gpu.yaml
+
+
+Job 2 — topo-gang  (gang admission + required topology, 8 GPUs)
+---------------------------------------------------------------
+$ kubectl apply -f jobs/02-topology-gang.yaml
+$ kubectl get pods -l job-name=topo-gang -o wide
+  All 8 pods are Running, and every one sits on a node in the same rack. They
+  might fill a single node (8 GPUs) or spread across the two nodes of one rack,
+  but they never split across rack1 and rack2.
+
+On the board (each team is its own block with its own quota bar):
+  TEAM-A   [████████░░░░░░░░] 8/16 GPU quota
+    ● running topo-gang       8 GPU   ████████  (rack1)
+
+Confirm the placement Kueue chose, recorded on the Workload:
+$ kubectl get workload -l job-name=topo-gang \
+    -o jsonpath='{.items[0].status.admission.podSetAssignments[0].topologyAssignment}'
+
+
+Job 3 — big-batch  (team-a queues behind itself — submit while job 2 runs, 12 GPUs)
+-----------------------------------------------------------------------------------
+$ kubectl apply -f jobs/03-over-quota.yaml      # team-a wants 12 more; only 8 free in team-a's pool
+
+On the board, under team-a:
+  TEAM-A   [████████░░░░░░░░] 8/16 GPU quota
+    ● running topo-gang       8 GPU   ████████  (rack1)
+    ◌ waiting big-batch      12 GPU   needs 4 more ⏳
+
+The reason, straight from Kueue:
+$ kubectl describe workload job-big-batch-xxxxx | grep -A2 -i message
+  ... couldn't assign flavors to pod set main: insufficient unused quota
+      for nvidia.com/gpu in flavor fake-h100, 4 more needed
+
+Now leave it alone. When job 2 finishes and frees team-a's 8 GPUs, big-batch is
+admitted on its own and moves to "● running".
+
+
+Job 4 — team-b-train  (a second tenant, running in parallel, 16 GPUs)
+---------------------------------------------------------------------
+Run this alongside team-a's gang (job 2):
+$ kubectl apply -f jobs/02-topology-gang.yaml    # team-a → one rack
+$ kubectl apply -f jobs/04-team-b.yaml           # team-b → the other rack, in parallel
+
+Both racks fill at once, and team-b claims a whole rack:
+  rack1   gpu-node-1 ████████   gpu-node-2 ░░░░░░░░    (team-a, 8 GPU)
+  rack2   gpu-node-3 ████████   gpu-node-4 ████████    (team-b, 16 GPU)
+
+  TEAM-A   [████████░░░░░░░░]  8/16 GPU quota
+    ● running topo-gang        8 GPU   ████████  (rack1)
+
+  TEAM-B   [████████████████] 16/16 GPU quota
+    ● running team-b-train    16 GPU   ████████████████  (rack2)
+
+The takeaway: two tenants run side by side, each inside its own 16-GPU quota, on
+its own rack. team-a's queued big-batch (job 3) can't borrow team-b's GPUs even
+when team-b is idle — the slices are fixed.
+
+
+Jobs 5 + 6 — priority and preemption
+------------------------------------
+$ kubectl apply -f jobs/05-low-priority.yaml     # low-prio batch fills team-a, 16 GPU
+$ kubectl apply -f jobs/06-high-priority.yaml    # urgent job, 8 GPU, no room
+
+Before the urgent job, team-a is full:
+  TEAM-A   [████████████████] 16/16 GPU quota
+    ● running batch-lowprio   16 GPU   ████████████████
+
+After it lands, the batch is cut back to make room and goes back to waiting:
+  TEAM-A   [████████░░░░░░░░]  8/16 GPU quota
+    ● running urgent           8 GPU   ████████
+    ◌ waiting batch-lowprio   16 GPU   needs 8 more ⏳
+
+When the urgent job finishes, the batch reclaims its GPUs on its own — no action
+needed. (team-b's queue has preemption off, so its jobs are never touched.)
+
+
+Jobs 7 + 7a — preferred vs required topology
+--------------------------------------------
+$ kubectl apply -f jobs/07a-fragmenter.yaml      # busies one node in each rack
+$ kubectl apply -f jobs/07-topology-spill.yaml   # 10 GPU, prefers one rack
+
+Each rack now has only 8 GPUs free, so a 10-GPU job fits neither rack on its own.
+Because it asked for *preferred* (not required), Kueue spills it across both
+racks instead of making it wait:
+  TEAM-A   [██████████░░░░░░] 10/16 GPU quota
+    ● running topo-spill      10 GPU   ██████████  (split: rack1+rack2)
+
+Contrast with job 2 (required topology): in the same spot it would sit waiting
+until a whole rack opened up.
