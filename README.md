@@ -1,5 +1,7 @@
 # Kueue Lab — schedule GPU jobs on a laptop (no GPUs required)
 
+Capstone Demo of GPU Scheduling, and AI Bonus content for my Workshops. 
+
 **No GPUs needed.** We simulate them: each fake node advertises `nvidia.com/gpu`
 capacity, so the scheduler counts and places GPUs for real even though there's no
 hardware behind them. The GPUs are fake, but the scheduling is the real thing.
