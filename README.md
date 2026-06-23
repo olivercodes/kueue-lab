@@ -1,11 +1,5 @@
 # Kueue Lab — schedule GPU jobs on a laptop (no GPUs required)
 
-The capstone hands-on for **Section 6** of *Getting Started with AI Infrastructure
-& GPU Computing*. You'll stand up a local Kubernetes cluster, pretend it's a small
-two-rack GPU datacenter, install **Kueue**, and watch it queue, gang-admit, and
-**topology-place** GPU jobs — the same scheduling behavior a real GPU cluster
-uses, running entirely in Docker on your machine.
-
 **No GPUs needed.** We simulate them: each fake node advertises `nvidia.com/gpu`
 capacity, so the scheduler counts and places GPUs for real even though there's no
 hardware behind them. The GPUs are fake, but the scheduling is the real thing.
